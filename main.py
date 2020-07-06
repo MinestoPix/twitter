@@ -33,11 +33,13 @@ Enter it with 'twitter -l LINK', \
 or write it to link.txt in directory of execution.
                 """)
                 sys.exit(1)
+
     result = requests.get(LINK + "?query=" + query)
     result.raise_for_status()
     result_dict = json.loads(result.text)
     connection.insert_results(query, result_dict)
     return result_dict
+
 
 def get_results_recurse_users(queries, iter_num, iter_max):
     results = []
@@ -54,8 +56,8 @@ def get_results_recurse_users(queries, iter_num, iter_max):
                 for mention in result["mentions"]:
                     users.append(mention["handle"])
 
-        return get_results_recurse_users(list(set(users)), iter_num + 1, iter_max)
-
+        return get_results_recurse_users(list(set(users)),
+                iter_num + 1, iter_max)
 
 
 def pretty_tweet(tweet):
@@ -68,9 +70,8 @@ def pretty_tweet(tweet):
         for mention in tweet["mentions"]:
             print("@" + mention["handle"])
 
+
 def main():
-    time_app = time.time()
-    res_num = 0
     if len(sys.argv) == 1:
         print("""
 USAGE: python main.py QUERY [NUMBER]
@@ -79,13 +80,19 @@ QUERY       string to query from database if stored, else api
 NUMBER      NUMBERth result, default 0, negative for all (shorthand -)
             """)
         return
-    if len(sys.argv) > 1:
-        query = sys.argv[1]
-    if len(sys.argv) > 2:
-        if sys.argv[2][0] == "-":
+    args = sys.argv.copy()
+    if "-l" in args:
+        del args[args.index("-l") + 1]
+        del args[args.index("-l")]
+    if len(args) > 1:
+        query = args[1]
+    if len(args) > 2:
+        if args[2][0] == "-":
             res_num = -1
         else:
-            res_num = int(sys.argv[2])
+            res_num = int(args[2])
+    else:
+        res_num = 0
 
     try:
         result_dict = get_result_dict_and_save(query)
@@ -96,7 +103,6 @@ NUMBER      NUMBERth result, default 0, negative for all (shorthand -)
         print("No offline results availible for query '" + query + "'\n")
         res = []
 
-    print(time.time() - time_app)
     if len(res) > 0:
         max_res = len(res) - 1
         if res_num >= 0:
@@ -109,7 +115,6 @@ NUMBER      NUMBERth result, default 0, negative for all (shorthand -)
                 print("--------------------------------------------")
     else:
         print("No Results")
-    print(time.time() - time_app)
 
 if __name__ == "__main__":
     main()
