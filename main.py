@@ -12,6 +12,27 @@ def get_result_dict_and_save(query):
     if result:
         return result
 
+    global LINK
+    if not "LINK" in globals():
+        try:
+            with open("link.txt", "r") as l_txt:
+                LINK = l_txt.read()
+        except Exception as e:
+            if "-l" in sys.argv:
+                with open("link.txt", "w") as l_txt:
+                    LINK = sys.argv[sys.argv.index("-l") + 1]
+                    l_txt.write(LINK)
+                    del sys.argv[sys.argv.index("-l") + 1]
+                    del sys.argv[sys.argv.index("-l")]
+            else:
+                print(e)
+                print()
+                print("""
+I need a link to work with. \
+Enter it with 'twitter -l LINK', \
+or write it to link.txt in directory of execution.
+                """)
+                sys.exit(1)
     result = requests.get(LINK + "?query=" + query)
     result.raise_for_status()
     result_dict = json.loads(result.text)
