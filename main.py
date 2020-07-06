@@ -7,10 +7,10 @@ import database as db
 
 
 def get_result_dict_and_save(query):
-    connection = db.Connection()
-    result = connection.get_query(query)
-    if result:
-        return result
+    with db.Connection() as connection:
+        result = connection.get_query(query)
+        if result:
+            return result
 
     global LINK
     if not "LINK" in globals():
@@ -37,7 +37,10 @@ or write it to link.txt in directory of execution.
     result = requests.get(LINK + "?query=" + query)
     result.raise_for_status()
     result_dict = json.loads(result.text)
-    connection.insert_results(query, result_dict)
+
+    with db.Connection() as connection:
+        connection.insert_results(query, result_dict)
+
     return result_dict
 
 

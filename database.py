@@ -3,15 +3,29 @@ import sqlite3
 class Connection():
 
     def __init__(self):
-        self.connection, self.cursor = self.get_connection_cursor()
+        self.connection = sqlite3.connect('results.db')
+        self.cursor = self.connection.cursor()
+        self.enable_foreign_keys()
 
     def close(self):
         self.connection.close()
 
-    def get_connection_cursor(_):
-        connection = sqlite3.connect('results.db')
-        cursor = connection.cursor()
-        return connection, cursor
+    def commit(self):
+        self.connection.commit()
+
+    def rollback(self):
+        self.connection.rollback()
+
+    def __enter__(self):
+        self.__init__()
+        return self
+
+    def __exit__(self, etype, evalue, etb):
+        if etb is None:
+            self.commit()
+        else:
+            self.rollback()
+        self.close()
 
     def enable_foreign_keys(self):
         enabled, = self.cursor.execute(
@@ -20,15 +34,6 @@ class Connection():
         if not enabled:
             self.cursor.execute("PRAGMA foreign_keys = ON;")
     
-    def unique_users(_, res):
-        users = []
-        for result in res:
-            users.append((result["user"]["handle"], result["user"]["name"]))
-            if "mentions" in result:
-                for mention in result["mentions"]:
-                    users.append((mention["handle"], mention["name"]))
-
-        return list(set(users))
 
 
     def insert_results(self, query, results):
@@ -36,14 +41,14 @@ class Connection():
                 INSERT OR IGNORE INTO queries(query, result_count)
                 VALUES (?, ?)
                 """, (query, results["res_count"]))
+
         res = results["res"]
-
-        users = self.unique_users(res)
-
+        users = unique_users(res)
         self.cursor.executemany("""
                 INSERT OR IGNORE INTO users(handle, name)
                 VALUES (?, ?)
                 """, iter(users))
+
         for result in res:
             self.cursor.execute("""
                 SELECT ROWID FROM queries WHERE query = ?
@@ -75,8 +80,8 @@ class Connection():
             if "hashtags" in result:
                 for hashtag in result["hashtags"]:
                     self.cursor.execute(
-                            "SELECT * FROM hashtags WHERE text = ?",
-                            (hashtag["text"],))
+                            "SELECT id FROM hashtags WHERE text = :text",
+                            hashtag)
                     existing_ht = self.cursor.fetchone()
 
                     if existing_ht:
@@ -87,27 +92,25 @@ class Connection():
                                 """, (result_id, existing_ht[0]))
                     else:
                         self.cursor.execute(
-                                "INSERT INTO hashtags(text) VALUES (?)",
-                                (hashtag["text"],))
+                                "INSERT INTO hashtags(text) VALUES (:text)",
+                                hashtag)
                         self.cursor.execute("""
                                 INSERT INTO hashtag_to_result(
                                     result, hashtag
                                 ) VALUES (?, ?)
                                 """, (result_id, self.cursor.lastrowid))
-                        
-        self.connection.commit()
 
-    
+
     def get_query(self, query):
         self.cursor.execute(
-                "SELECT * FROM queries WHERE query = ?",
+                "SELECT id, result_count FROM queries WHERE query = ?",
                 (query,))
         query = self.cursor.fetchone()
 
         if not query:
             return None
 
-        query_id, query_txt, res_count = query
+        query_id, res_count = query
 
         json_dict = {
                 "res_count":    res_count,
@@ -178,21 +181,34 @@ class Connection():
         return self.cursor.fetchall()
 
     def get_relations_from_list(self, user_handles):
-        exe_str = ["SELECT * FROM author_mentions WHERE (author != mention) "]
+        exe_str = [
+            "SELECT * FROM author_mentions WHERE (author != mention) "
+            ]
 
-        exe_str.extend(f"AND (author IN ({','.join(['?'] * len(user_handles))}) ")
-        exe_str.extend(f"OR mention IN ({','.join(['?'] * len(user_handles))}))")
+        exe_str.extend(
+            f"AND (author IN ({','.join(['?'] * len(user_handles))}) ")
+        exe_str.extend(
+            f"OR mention IN ({','.join(['?'] * len(user_handles))}))")
         
         
         user_handles.extend(user_handles)
 
-        # print(''.join(exe_str), user_handles)
         self.cursor.execute(''.join(exe_str), user_handles)
         return self.cursor.fetchall()
 
 
-def init_tables(con, c):
-    c.executescript("""
+def unique_users(res):
+    users = []
+    for result in res:
+        users.append((result["user"]["handle"], result["user"]["name"]))
+        if "mentions" in result:
+            for mention in result["mentions"]:
+                users.append((mention["handle"], mention["name"]))
+
+    return list(set(users))
+
+def init_tables(cursor):
+    cursor.executescript("""
 CREATE TABLE IF NOT EXISTS queries (
     id              INTEGER PRIMARY KEY,
     query           TEXT,
@@ -238,11 +254,9 @@ CREATE TABLE IF NOT EXISTS hashtag_to_result (
 CREATE INDEX IF NOT EXISTS result_index ON hashtag_to_result(result);
 CREATE INDEX IF NOT EXISTS hashtag_index ON hashtag_to_result(hashtag);
     """)
-    con.commit()
 
 
 
 if __name__ == "__main__":
-    connection = Connection()
-    init_tables(connection.connection, connection.cursor)
-    connection.close()
+    with Connection() as connection:
+        init_tables(connection.cursor)
